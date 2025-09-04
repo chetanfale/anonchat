@@ -1,0 +1,900 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AnonChat</title>
+    <!-- Tailwind CSS for styling, loaded from a CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Import a monospace font for a terminal-like appearance */
+        @import url('https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700&display=swap');
+        
+        /* Base styles for the entire page */
+        body {
+            font-family: 'Roboto Mono', monospace;
+            background-color: #0d0d0d;
+            color: #00ff41;
+        }
+        
+        /* Custom box shadow for a glowing terminal effect */
+        .terminal-shadow {
+            box-shadow: 0 0 10px 5px rgba(0, 255, 65, 0.2);
+        }
+        
+        /* Text glow effect */
+        .glow-green {
+            text-shadow: 0 0 5px #00ff41, 0 0 10px #00ff41;
+        }
+        
+        /* Button glow on hover */
+        .button-glow {
+            transition: box-shadow 0.3s ease;
+        }
+        .button-glow:hover {
+            box-shadow: 0 0 8px #00ff41;
+        }
+        
+        /* Styles for input fields */
+        .input-border {
+            border-color: #00ff41;
+        }
+        .input-bg {
+            background-color: transparent;
+        }
+        .input-placeholder::placeholder {
+            color: #00661a;
+        }
+        
+        /* Custom scrollbar to match the terminal theme */
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 8px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: #0d0d0d;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: #00ff41;
+            border-radius: 10px;
+        }
+    </style>
+</head>
+<body class="min-h-screen flex items-center justify-center p-4">
+
+    <!-- Pop-up message box for errors, success, etc. -->
+    <div id="message-box" class="hidden fixed top-5 left-1/2 -translate-x-1/2 p-4 rounded-lg shadow-lg z-50"></div>
+
+    <!-- Modal for renaming a member (hidden by default) -->
+    <div id="rename-modal" class="hidden fixed inset-0 bg-gray-900 bg-opacity-75 flex items-center justify-center z-50">
+        <div class="border-2 border-[#00ff41] p-8 rounded-lg terminal-shadow w-full max-w-sm">
+            <h2 class="text-xl font-bold mb-4 text-center glow-green">[[ RENAME MEMBER ]]</h2>
+            <input id="rename-member-id" type="text" placeholder="> MEMBER ID" class="w-full p-3 input-bg border-b-2 input-border text-[#00ff41] input-placeholder focus:outline-none mb-4">
+            <input id="rename-new-name" type="text" placeholder="> NEW NAME" class="w-full p-3 input-bg border-b-2 input-border text-[#00ff41] input-placeholder focus:outline-none mb-4">
+            <div class="flex justify-between space-x-4">
+                <button id="rename-confirm-btn" class="flex-1 bg-[#00ff41] text-black py-2 rounded-lg font-bold button-glow">CONFIRM</button>
+                <button id="rename-cancel-btn" class="flex-1 bg-gray-700 text-[#00ff41] py-2 rounded-lg font-bold button-glow">CANCEL</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Home Screen UI for creating and joining rooms -->
+    <div id="home-screen" class="screen w-full max-w-2xl border-2 border-[#00ff41] p-8 rounded-lg terminal-shadow">
+        <h1 class="text-3xl font-bold mb-6 text-center glow-green">ANONCHAT PROTOCOL</h1>
+        
+        <div class="flex flex-col md:flex-row md:space-x-8 mb-8">
+            <!-- Section for creating a new room -->
+            <div class="flex-1 p-6 border-2 border-[#00ff41] rounded-lg mb-6 md:mb-0">
+                <h2 class="text-xl font-bold mb-4 text-center glow-green">[[ CREATE ROOM ]]</h2>
+                <input id="passcode-input" type="text" placeholder="> ENTER PASSCODE" class="w-full p-3 rounded-lg input-bg border-b-2 input-border text-[#00ff41] input-placeholder focus:outline-none mb-4">
+                <button id="create-room-btn" class="w-full bg-[#00ff41] text-black py-3 rounded-lg font-bold button-glow">INITIATE CONNECTION</button>
+            </div>
+
+            <!-- Section for joining an existing room -->
+            <div class="flex-1 p-6 border-2 border-[#00ff41] rounded-lg">
+                <h2 class="text-xl font-bold mb-4 text-center glow-green">[[ JOIN ROOM ]]</h2>
+                <input id="join-name-input" type="text" placeholder="> ENTER USERNAME" class="w-full p-3 rounded-lg input-bg border-b-2 input-border text-[#00ff41] input-placeholder focus:outline-none mb-2">
+                <input id="join-room-id-input" type="text" placeholder="> ENTER ROOM ID" class="w-full p-3 rounded-lg input-bg border-b-2 input-border text-[#00ff41] input-placeholder focus:outline-none mb-2">
+                <input id="join-passcode-input" type="text" placeholder="> ENTER PASSCODE" class="w-full p-3 rounded-lg input-bg border-b-2 input-border text-[#00ff41] input-placeholder focus:outline-none mb-4">
+                <button id="join-room-btn" class="w-full bg-[#00ff41] text-black py-3 rounded-lg font-bold button-glow">CONNECT</button>
+            </div>
+        </div>
+        
+        <!-- Message for join requests awaiting approval -->
+        <p id="join-request-sent" class="hidden mt-4 text-sm text-center">[[ WAITING FOR ACCESS APPROVAL ]]</p>
+    </div>
+
+    <!-- Main Chatroom Screen -->
+    <div id="chatroom-screen" class="screen hidden w-full max-w-5xl h-[90vh] flex flex-col border-2 border-[#00ff41] rounded-lg terminal-shadow p-6">
+        <div class="flex justify-between items-center mb-4 pb-4 border-b-2 border-[#00ff41]">
+            <h1 class="text-2xl font-bold glow-green flex items-center space-x-2">
+                <span id="room-id-display">ROOM ID:</span>
+                <!-- Button to copy Room ID to clipboard -->
+                <button onclick="copyToClipboard('room-id-display')" class="text-[#00aaff] hover:text-[#00aaff]/80 text-sm">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                    </svg>
+                </button>
+            </h1>
+            <div class="flex items-center space-x-4">
+                <p id="user-id-display" class="text-sm flex items-center space-x-2">
+                    <span>Your ID:</span>
+                    <!-- Button to copy User ID to clipboard -->
+                    <button onclick="copyToClipboard('user-id-display')" class="text-[#00aaff] hover:text-[#00aaff]/80 text-sm">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                        </svg>
+                    </button>
+                </p>
+                <!-- Button to exit the chatroom -->
+                <button id="exit-room-btn" class="bg-[#ff0000] text-black px-4 py-2 rounded-lg font-bold button-glow hover:bg-[#ff0000]/80">EXIT</button>
+            </div>
+        </div>
+        
+        <div class="flex flex-col md:flex-row flex-1 overflow-hidden">
+            <!-- Main Chat Area -->
+            <div class="flex flex-col flex-1 border-2 border-[#00ff41] rounded-lg p-4 overflow-hidden md:mr-4 mb-4 md:mb-0">
+                <!-- Message display area -->
+                <div id="messages-list" class="flex-1 overflow-y-auto mb-4 custom-scrollbar space-y-2"></div>
+                <!-- Chat message input area -->
+                <div id="chat-input-area" class="flex flex-col md:flex-row items-end">
+                    <textarea id="message-input" placeholder="> TYPE MESSAGE" class="flex-1 p-3 input-bg border-2 input-border text-[#00ff41] input-placeholder focus:outline-none resize-none h-auto min-h-[50px] rounded-l-lg"></textarea>
+                    <button id="send-message-btn" class="bg-[#00ff41] text-black p-3 rounded-r-lg font-bold button-glow w-full md:w-auto">SEND</button>
+                </div>
+            </div>
+            
+            <!-- Side Panel -->
+            <div class="w-full md:w-1/3 flex flex-col space-y-4">
+                <!-- Members List -->
+                <div class="flex-1 border-2 border-[#00ff41] rounded-lg p-4">
+                    <h2 class="text-lg font-bold mb-2 glow-green">[[ MEMBERS ]]</h2>
+                    <ul id="members-list" class="space-y-2 overflow-y-auto max-h-40 md:max-h-full"></ul>
+                </div>
+
+                <!-- Admin Controls (hidden by default) -->
+                <div id="admin-controls" class="hidden border-2 border-[#00ff41] rounded-lg p-4">
+                    <h2 class="text-lg font-bold mb-2 glow-green">[[ ADMIN CONTROLS ]]</h2>
+                    <div class="flex flex-col space-y-2">
+                        <button id="vanish-chats-btn" class="bg-[#ffbf00] text-black py-2 rounded-lg font-bold button-glow">VANISH ALL CHATS</button>
+                        <button id="close-room-btn" class="bg-[#ff0000] text-black py-2 rounded-lg font-bold button-glow">CLOSE CHATROOM</button>
+                        <button id="show-rename-modal-btn" class="bg-[#00aaff] text-black py-2 rounded-lg font-bold button-glow">RENAME MEMBER</button>
+                        <div class="flex flex-col space-y-2 mt-4">
+                            <input id="new-room-id-input" type="text" placeholder="> NEW ROOM ID" class="w-full p-2 input-bg border-b-2 input-border text-[#00ff41] input-placeholder focus:outline-none">
+                            <button id="change-room-id-btn" class="bg-[#00aaff] text-black py-2 rounded-lg font-bold button-glow">CHANGE ROOM ID</button>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Join Requests (hidden by default) -->
+                <div id="requests-container" class="hidden border-2 border-[#00ff41] rounded-lg p-4">
+                    <h2 class="text-lg font-bold mb-2 glow-green">[[ JOIN REQUESTS ]]</h2>
+                    <div id="requests-list" class="space-y-2"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main JavaScript Logic -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInWithCustomToken, signInAnonymously } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, getDoc, setDoc, addDoc, collection, query, where, getDocs, deleteDoc, onSnapshot, writeBatch, updateDoc, orderBy } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Set log level to debug for detailed console output
+        setLogLevel('debug');
+
+        // Firebase configuration object (replace with your own)
+        const firebaseConfig = {
+              apiKey: "AIzaSyCVL-W9_ZIs6TY97EZ4BcIEK0DwFePb4rE",
+              authDomain: "anonchat-53f38.firebaseapp.com",
+              projectId: "anonchat-53f38",
+              storageBucket: "anonchat-53f38.firebasestorage.app",
+              messagingSenderId: "656923009248",
+              appId: "1:656923009248:web:e86dd6b3a0a11e90797085",
+              measurementId: "G-EWYJXXE8R9"
+        };
+        const appId = firebaseConfig.projectId;
+
+        // Global variables for Firebase services and user state
+        const initialAuthToken = null;
+        let app;
+        let db;
+        let auth;
+        let userId = null;
+        let currentRoomId = null;
+        let isAdmin = false;
+        let memberDisplayNames = {};
+        let historyAccessTimestamp = null;
+        const memberColors = ['#ff8800', '#00aaff', '#ff00ff', '#ff00aaff', '#aaff00'];
+
+        // Main function to run on page load
+        window.onload = async () => {
+            try {
+                if (Object.keys(firebaseConfig).length > 0) {
+                    app = initializeApp(firebaseConfig);
+                    db = getFirestore(app);
+                    auth = getAuth(app);
+                    await handleAuth();
+                    setupListeners();
+                } else {
+                    console.error("Firebase config is missing. Please provide it.");
+                }
+            } catch (error) {
+                console.error("Initialization failed:", error);
+            }
+        };
+
+        // Handles user authentication, either with a custom token or anonymously
+        async function handleAuth() {
+            try {
+                if (initialAuthToken) {
+                    await signInWithCustomToken(auth, initialAuthToken);
+                } else {
+                    await signInAnonymously(auth);
+                }
+                userId = auth.currentUser.uid;
+                console.log("Authenticated with user ID:", userId);
+            } catch (error) {
+                console.error("Authentication failed:", error);
+            }
+        }
+
+        // Sets up all event listeners for UI elements
+        function setupListeners() {
+            document.getElementById('create-room-btn').addEventListener('click', createRoom);
+            document.getElementById('join-room-btn').addEventListener('click', joinRoom);
+            document.getElementById('send-message-btn').addEventListener('click', sendMessage);
+            document.getElementById('vanish-chats-btn').addEventListener('click', vanishChats);
+            document.getElementById('close-room-btn').addEventListener('click', closeRoom);
+            document.getElementById('exit-room-btn').addEventListener('click', exitRoom);
+            document.getElementById('show-rename-modal-btn').addEventListener('click', () => {
+                document.getElementById('rename-modal').classList.remove('hidden');
+            });
+            document.getElementById('rename-confirm-btn').addEventListener('click', renameMember);
+            document.getElementById('rename-cancel-btn').addEventListener('click', () => {
+                document.getElementById('rename-modal').classList.add('hidden');
+            });
+            document.getElementById('change-room-id-btn').addEventListener('click', changeRoomId);
+
+            document.getElementById('message-input').addEventListener('keydown', (event) => {
+                if (event.key === 'Enter' && !event.shiftKey) {
+                    event.preventDefault();
+                    sendMessage();
+                }
+            });
+            
+            document.getElementById('message-input').addEventListener('input', (event) => {
+                event.target.style.height = 'auto';
+                event.target.style.height = `${event.target.scrollHeight}px`;
+            });
+
+            // Handles a user's status when they close the browser tab
+            window.addEventListener('beforeunload', async () => {
+                if (currentRoomId && userId) {
+                    try {
+                        const memberRef = doc(db, `artifacts/${appId}/public/data/chatrooms/${currentRoomId}/members`, userId);
+                        const memberDoc = await getDoc(memberRef);
+                        if (memberDoc.exists()) {
+                            await updateDoc(memberRef, { isOnline: false });
+                        }
+                    } catch (error) {
+                        console.error("Error setting user offline:", error);
+                    }
+                }
+            });
+        }
+        
+        // Function to copy text from a UI element to the clipboard
+        function copyToClipboard(elementId) {
+            let textToCopy = '';
+            if (elementId === 'room-id-display') {
+                textToCopy = document.getElementById(elementId).innerText.replace('ROOM ID: ', '').trim();
+            } else if (elementId === 'user-id-display') {
+                textToCopy = document.getElementById(elementId).innerText.replace('Your ID: ', '').trim();
+            }
+            const tempInput = document.createElement('textarea');
+            tempInput.value = textToCopy;
+            document.body.appendChild(tempInput);
+            tempInput.select();
+            document.execCommand('copy');
+            document.body.removeChild(tempInput);
+            showMessage('ID copied to clipboard!', 'info');
+        }
+        window.copyToClipboard = copyToClipboard;
+
+        // Toggles the visibility of different UI screens
+        function showScreen(screenId) {
+            document.querySelectorAll('.screen').forEach(screen => {
+                screen.classList.add('hidden');
+            });
+            document.getElementById(screenId).classList.remove('hidden');
+        }
+
+        // Logic for creating a new chatroom
+        async function createRoom() {
+            const passcode = document.getElementById('passcode-input').value;
+            if (!passcode) {
+                showMessage('Please enter a passcode.', 'error');
+                return;
+            }
+            try {
+                // Check if a room with this passcode already exists and is active
+                const q = query(collection(db, `artifacts/${appId}/public/data/chatrooms`), where("passcode", "==", passcode));
+                const querySnapshot = await getDocs(q);
+                
+                if (!querySnapshot.empty) {
+                    const existingRoom = querySnapshot.docs[0].data();
+                    if (existingRoom.isActive) {
+                        showMessage('A room with this passcode is already active.', 'error');
+                        return;
+                    }
+                }
+
+                // Create a new room document
+                const newRoomRef = doc(collection(db, `artifacts/${appId}/public/data/chatrooms`));
+                await setDoc(newRoomRef, {
+                    roomId: newRoomRef.id,
+                    adminId: userId,
+                    isActive: true,
+                    passcode: passcode,
+                    createdAt: Date.now()
+                });
+                
+                // Add the creator as the first member with history access set to timestamp
+                await setDoc(doc(db, `artifacts/${appId}/public/data/chatrooms/${newRoomRef.id}/members`, userId), {
+                    userId: userId,
+                    isMember: true,
+                    isOnline: true,
+                    displayName: 'Admin',
+                    historyAccessTimestamp: Date.now(), // Set to current time so admin can see messages
+                    color: memberColors[0]
+                });
+                currentRoomId = newRoomRef.id;
+                isAdmin = true;
+                showMessage(`Room created with ID: ${currentRoomId}`, 'success');
+                enterChatroom(currentRoomId);
+            } catch (error) {
+                console.error("Error creating room:", error);
+                showMessage('Failed to create room.', 'error');
+            }
+        }
+
+        // Logic for a user attempting to join a room
+        async function joinRoom() {
+            const name = document.getElementById('join-name-input').value;
+            const roomId = document.getElementById('join-room-id-input').value;
+            const passcode = document.getElementById('join-passcode-input').value;
+
+            if (!name || !roomId || !passcode) {
+                showMessage('Please enter your name, room ID, and passcode.', 'error');
+                return;
+            }
+            try {
+                // Verify room ID and passcode
+                const roomDoc = await getDoc(doc(db, `artifacts/${appId}/public/data/chatrooms`, roomId));
+                if (!roomDoc.exists() || roomDoc.data().passcode !== passcode) {
+                    showMessage('Invalid room ID or passcode.', 'error');
+                    return;
+                }
+                if (!roomDoc.data().isActive) {
+                    showMessage('The chatroom is closed.', 'error');
+                    return;
+                }
+
+                currentRoomId = roomId;
+                const membersRef = collection(db, `artifacts/${appId}/public/data/chatrooms/${currentRoomId}/members`);
+                const membersSnapshot = await getDocs(membersRef);
+
+                const memberDoc = await getDoc(doc(db, `artifacts/${appId}/public/data/chatrooms/${currentRoomId}/members`, userId));
+                if (memberDoc.exists()) {
+                    // Re-joining an existing member - set historyAccessTimestamp to null so they must use /getbac
+                    await updateDoc(doc(db, `artifacts/${appId}/public/data/chatrooms/${currentRoomId}/members`, userId), { 
+                        isOnline: true, 
+                        historyAccessTimestamp: null 
+                    });
+                    enterChatroom(currentRoomId);
+                    return;
+                }
+                
+                if (membersSnapshot.empty) {
+                    // First member in the room, join automatically with historyAccessTimestamp set to current time
+                    await setDoc(doc(db, `artifacts/${appId}/public/data/chatrooms/${currentRoomId}/members`, userId), {
+                        userId: userId,
+                        isMember: true,
+                        isOnline: true,
+                        displayName: name,
+                        historyAccessTimestamp: Date.now(), // First member gets immediate access
+                        color: memberColors[0]
+                    });
+                    enterChatroom(currentRoomId);
+                } else {
+                    // Send a join request and listen for approval
+                    await setDoc(doc(db, `artifacts/${appId}/public/data/chatrooms/${currentRoomId}/requests`, userId), {
+                        userId: userId,
+                        displayName: name,
+                        timestamp: Date.now()
+                    });
+                    showMessage('Your join request has been sent to the admin. Please wait for approval.', 'info');
+                    
+                    const unsubscribe = onSnapshot(doc(db, `artifacts/${appId}/public/data/chatrooms/${currentRoomId}/members`, userId), (memberDoc) => {
+                        if (memberDoc.exists()) {
+                            unsubscribe(); // Stop listening once approved
+                            showMessage('Your request has been approved!', 'success');
+                            enterChatroom(currentRoomId);
+                        }
+                    });
+                }
+            } catch (error) {
+                console.error("Error joining room:", error);
+                showMessage('Failed to join room.', 'error');
+            }
+        }
+
+        // Sets up all real-time listeners and enters the chatroom UI
+        async function enterChatroom(roomId) {
+            showScreen('chatroom-screen');
+            document.getElementById('room-id-display').innerText = `ROOM ID: ${roomId}`;
+            document.getElementById('user-id-display').innerText = `Your ID: ${userId}`;
+            
+            try {
+                const roomDoc = await getDoc(doc(db, `artifacts/${appId}/public/data/chatrooms`, roomId));
+                isAdmin = roomDoc.data().adminId === userId;
+            } catch (error) {
+                console.error("Error determining admin status:", error);
+            }
+
+            if (isAdmin) {
+                document.getElementById('admin-controls').classList.remove('hidden');
+            } else {
+                document.getElementById('admin-controls').classList.add('hidden');
+            }
+            
+            // Listener for the current user's membership to handle kicks
+            onSnapshot(doc(db, `artifacts/${appId}/public/data/chatrooms/${roomId}/members`, userId), (doc) => {
+                if (!doc.exists()) {
+                    // User has been kicked or left. Hide chat input immediately and exit
+                    document.getElementById('chat-input-area').classList.add('hidden');
+                    showMessage('You have been removed from the chatroom.', 'error');
+                    // Exit immediately without delay
+                    setTimeout(() => {
+                        exitRoom();
+                    }, 1000);
+                } else {
+                    const memberData = doc.data();
+                    historyAccessTimestamp = memberData.historyAccessTimestamp;
+                }
+            });
+
+            // Real-time listener for join requests (admin only)
+            onSnapshot(collection(db, `artifacts/${appId}/public/data/chatrooms/${roomId}/requests`), async (snapshot) => {
+                const requestsList = document.getElementById('requests-list');
+                requestsList.innerHTML = '';
+                const roomDoc = await getDoc(doc(db, `artifacts/${appId}/public/data/chatrooms`, roomId));
+                isAdmin = roomDoc.data().adminId === userId;
+                if (snapshot.docs.length > 0) {
+                    document.getElementById('requests-container').classList.remove('hidden');
+                } else {
+                    document.getElementById('requests-container').classList.add('hidden');
+                }
+                snapshot.forEach(doc => {
+                    const requestData = doc.data();
+                    const requestElement = document.createElement('div');
+                    requestElement.className = 'flex justify-between items-center p-2 rounded-lg mb-2 border border-[#00ff41]';
+                    
+                    let buttonsHtml = '';
+                    if (isAdmin) {
+                        buttonsHtml = `
+                            <button onclick="handleRequest('${doc.id}', true, '${requestData.displayName}')" class="bg-[#00aaff] text-black px-3 py-1 rounded-full mr-2 button-glow">ACCEPT</button>
+                            <button onclick="handleRequest('${doc.id}', false)" class="bg-[#ff0000] text-black px-3 py-1 rounded-full button-glow">DENY</button>
+                        `;
+                    }
+
+                    requestElement.innerHTML = `
+                        <span>> ${requestData.displayName || requestData.userId} wants to join.</span>
+                        <div class="flex items-center space-x-2">${buttonsHtml}</div>
+                    `;
+                    requestsList.appendChild(requestElement);
+                });
+            });
+
+            // Real-time listener for room status (e.g., closed)
+            onSnapshot(doc(db, `artifacts/${appId}/public/data/chatrooms`, roomId), (doc) => {
+                const room = doc.data();
+                if (room && !room.isActive) {
+                    document.getElementById('chat-input-area').classList.add('hidden');
+                    showMessage('The chatroom has been closed by the admin.', 'info');
+                } else {
+                    document.getElementById('chat-input-area').classList.remove('hidden');
+                }
+                document.getElementById('room-id-display').innerText = `ROOM ID: ${room.roomId}`;
+            });
+
+            // Real-time listener for member list and online status
+            onSnapshot(collection(db, `artifacts/${appId}/public/data/chatrooms/${roomId}/members`), (snapshot) => {
+                const membersList = document.getElementById('members-list');
+                membersList.innerHTML = '';
+                memberDisplayNames = {};
+                snapshot.forEach(doc => {
+                    const memberData = doc.data();
+                    const displayName = memberData.displayName || memberData.userId;
+                    memberDisplayNames[memberData.userId] = { displayName: displayName, color: memberData.color };
+                    const memberElement = document.createElement('li');
+                    
+                    const statusColor = memberData.isOnline ? 'bg-[#00ff41]' : 'bg-[#ff0000]';
+                    memberElement.className = 'p-2 rounded-lg mb-2 flex justify-between items-center border border-[#00ff41]';
+                    
+                    let kickButtonHtml = '';
+                    if (isAdmin && memberData.userId !== userId) {
+                         kickButtonHtml = `<button onclick="kickMember('${memberData.userId}')" class="bg-[#ff0000] text-black px-3 py-1 rounded-full button-glow">KICK</button>`;
+                    }
+
+                    memberElement.innerHTML = `<div class="flex items-center space-x-2"><span class="w-2 h-2 rounded-full ${statusColor}"></span><span>> ${memberData.userId === userId ? `${displayName} (YOU)` : displayName}</span></div> ${kickButtonHtml}`;
+                    membersList.appendChild(memberElement);
+                });
+            });
+            
+            // Real-time listener for messages, ordered by timestamp
+            const messagesQuery = query(collection(db, `artifacts/${appId}/public/data/chatrooms/${roomId}/messages`), orderBy("timestamp"));
+
+            onSnapshot(messagesQuery, async (snapshot) => {
+                const messagesList = document.getElementById('messages-list');
+                messagesList.innerHTML = '';
+                
+                // Get the user's current history access timestamp
+                const memberDoc = await getDoc(doc(db, `artifacts/${appId}/public/data/chatrooms/${currentRoomId}/members`, userId));
+                const memberData = memberDoc.data();
+                const currentHistoryAccessTimestamp = memberData.historyAccessTimestamp;
+                
+                // Render messages based on history access
+                snapshot.forEach(doc => {
+                    const messageData = doc.data();
+                    
+                    // Do not show any messages if historyAccessTimestamp is null
+                    if (currentHistoryAccessTimestamp === null) {
+                       return;
+                    }
+                    
+                    // Only show messages that were sent after the user got history access
+                    if (messageData.timestamp <= currentHistoryAccessTimestamp) {
+                        return;
+                    }
+                    
+                    const messageElement = document.createElement('div');
+                    const isSystemMessage = messageData.userId === 'system-bot';
+
+                    if (isSystemMessage) {
+                        messageElement.className = 'p-3 my-2 text-center text-[#00ff41] break-words whitespace-pre-wrap';
+                        messageElement.innerHTML = `<pre>${messageData.text}</pre>`;
+                    } else {
+                        const senderDisplayName = memberDisplayNames[messageData.userId]?.displayName || messageData.userId;
+                        const senderColor = memberDisplayNames[messageData.userId]?.color || '#00ff41';
+                        messageElement.innerHTML = `<span style="color:${senderColor};">> ${senderDisplayName}:</span> <span class="text-white">${messageData.text}</span>`;
+                        messageElement.className = 'p-3 my-2 break-words whitespace-pre-wrap';
+                    }
+                    messagesList.appendChild(messageElement);
+                });
+                messagesList.scrollTop = messagesList.scrollHeight;
+            });
+        }
+        
+        // Kicks a member from the chatroom (admin-only)
+        window.kickMember = async (memberToKickId) => {
+            if (!currentRoomId || !isAdmin) return;
+            try {
+                const memberRef = doc(db, `artifacts/${appId}/public/data/chatrooms/${currentRoomId}/members`, memberToKickId);
+                await deleteDoc(memberRef);
+                showMessage(`[[ PROTOCOL: KICK INITIATED ]]\n[[ TARGET: ${memberToKickId} ]]\n[[ STATUS: SUCCESS ]]`, 'success');
+            } catch (error) {
+                console.error("Error kicking member:", error);
+                showMessage('[[ PROTOCOL: KICK INITIATED ]]\n[[ STATUS: FAILURE ]]', 'error');
+            }
+        };
+
+        // Handles a join request (admin-only)
+        window.handleRequest = async (requestId, accept, displayName) => {
+            if (!currentRoomId || !isAdmin) return;
+            const requestRef = doc(db, `artifacts/${appId}/public/data/chatrooms/${currentRoomId}/requests`, requestId);
+            try {
+                const requestDoc = await getDoc(requestRef);
+                if (!requestDoc.exists()) return;
+                const requesterId = requestDoc.data().userId;
+                
+                if (accept) {
+                    const membersRef = collection(db, `artifacts/${appId}/public/data/chatrooms/${currentRoomId}/members`);
+                    const membersSnapshot = await getDocs(membersRef);
+                    const assignedColor = memberColors[membersSnapshot.size % memberColors.length];
+
+                    await setDoc(doc(db, `artifacts/${appId}/public/data/chatrooms/${currentRoomId}/members`, requesterId), {
+                        userId: requesterId,
+                        isMember: true,
+                        isOnline: true,
+                        displayName: displayName || requesterId,
+                        historyAccessTimestamp: null, // User must use /getbac to see messages
+                        color: assignedColor
+                    });
+                     await addDoc(collection(db, `artifacts/${appId}/public/data/chatrooms/${currentRoomId}/messages`), {
+                        userId: 'system-bot',
+                        text: `ACCESS GRANTED: ${displayName || requesterId} is now a member of the chat.`,
+                        timestamp: Date.now()
+                    });
+                }
+                await deleteDoc(requestRef);
+            } catch (error) {
+                console.error("Error handling request:", error);
+                showMessage('[[ PROTOCOL: JOIN REQUEST FAILURE ]]', 'error');
+            }
+        };
+
+        // Sends a message to the chat or processes a command
+        async function sendMessage() {
+            const messageInput = document.getElementById('message-input');
+            const messageText = messageInput.value.trim();
+            if (messageText === '') return;
+            
+            const memberDoc = await getDoc(doc(db, `artifacts/${appId}/public/data/chatrooms/${currentRoomId}/members`, userId));
+            if (!memberDoc.exists()) {
+                 showMessage('[[ ERROR: NOT AUTHORIZED ]]', 'error');
+                 return;
+            }
+
+            // Command: /getbac - grants access to chat history
+            if (messageText.toLowerCase() === '/getbac') {
+                try {
+                    await updateDoc(doc(db, `artifacts/${appId}/public/data/chatrooms/${currentRoomId}/members`, userId), {
+                        historyAccessTimestamp: Date.now()
+                    });
+                     await addDoc(collection(db, `artifacts/${appId}/public/data/chatrooms/${currentRoomId}/messages`), {
+                        userId: 'system-bot',
+                        text: `[[ HISTORY ACCESS GRANTED ]]\n[[ STATUS: SUCCESS ]]`,
+                        timestamp: Date.now()
+                    });
+                    messageInput.value = '';
+                } catch (error) {
+                    console.error("Error granting history access:", error);
+                    showMessage('[[ PROTOCOL: HISTORY ACCESS FAILURE ]]', 'error');
+                }
+                return;
+            }
+
+            // Command: /getid - lists all active users
+            if (messageText.toLowerCase() === '/getid') {
+                const membersRef = collection(db, `artifacts/${appId}/public/data/chatrooms/${currentRoomId}/members`);
+                const membersSnapshot = await getDocs(membersRef);
+                let memberListMessage = "[[ ACTIVE USERS ]]\n";
+                membersSnapshot.forEach(doc => {
+                    const memberData = doc.data();
+                    const displayName = memberData.displayName || memberData.userId;
+                    memberListMessage += `> ${displayName} : ${memberData.userId}\n`;
+                });
+                
+                await addDoc(collection(db, `artifacts/${appId}/public/data/chatrooms/${currentRoomId}/messages`), {
+                    userId: 'system-bot',
+                    text: memberListMessage,
+                    timestamp: Date.now()
+                });
+                messageInput.value = '';
+                return;
+            }
+
+            // Command: /getadmin - grants admin privileges
+            if (messageText.toLowerCase() === '/getadmin') {
+                if (isAdmin) {
+                    showMessage('[[ STATUS: ALREADY ADMIN ]]', 'info');
+                    messageInput.value = '';
+                    return;
+                }
+                try {
+                    await updateDoc(doc(db, `artifacts/${appId}/public/data/chatrooms`, currentRoomId), { adminId: userId });
+                    isAdmin = true;
+                    await addDoc(collection(db, `artifacts/${appId}/public/data/chatrooms/${currentRoomId}/messages`), {
+                        userId: 'system-bot',
+                        text: `[[ ADMIN PRIVILEGES GRANTED TO ${memberDoc.data().displayName || userId} ]]`,
+                        timestamp: Date.now()
+                    });
+                    showMessage('[[ STATUS: ADMIN ACCESS GRANTED ]]', 'success');
+                    messageInput.value = '';
+                } catch (error) {
+                    console.error("Error granting admin access:", error);
+                    showMessage('[[ PROTOCOL: ADMIN ACCESS FAILURE ]]', 'error');
+                }
+                return;
+            }
+
+            // Command: /killhouse - clears all data and creates a new room
+            if (messageText.toLowerCase() === '/killhouse') {
+                if (!isAdmin) {
+                    showMessage('[[ ERROR: ADMIN PRIVILEGES REQUIRED ]]', 'error');
+                    messageInput.value = '';
+                    return;
+                }
+                
+                showMessage('[[ PROTOCOL: KILLHOUSE INITIATED ]]', 'info');
+                await vanishChats();
+                await closeRoom();
+
+                const newPasscode = Math.random().toString(36).substring(2, 8);
+                const newRoomRef = doc(collection(db, `artifacts/${appId}/public/data/chatrooms`));
+                await setDoc(newRoomRef, {
+                    roomId: newRoomRef.id,
+                    adminId: userId,
+                    isActive: true, 
+                    passcode: newPasscode,
+                    createdAt: Date.now()
+                });
+                
+                await addDoc(collection(db, `artifacts/${appId}/public/data/chatrooms/${currentRoomId}/messages`), {
+                    userId: 'system-bot',
+                    text: `[[ KILLHOUSE PROTOCOL COMPLETE ]]\n[[ STATUS: SUCCESS ]]\n\n> NEW SECURE ROOM GENERATED\n> ROOM ID: ${newRoomRef.id}\n> PASSCODE: ${newPasscode}`,
+                    timestamp: Date.now()
+                });
+
+                messageInput.value = '';
+                return;
+            }
+
+            // Default behavior: send a regular message
+            try {
+                await addDoc(collection(db, `artifacts/${appId}/public/data/chatrooms/${currentRoomId}/messages`), {
+                    userId: userId,
+                    text: messageText,
+                    timestamp: Date.now()
+                });
+                messageInput.value = '';
+            } catch (error) {
+                console.error("Error sending message:", error);
+                showMessage('[[ ERROR: FAILED TO SEND MESSAGE ]]', 'error');
+            }
+        }
+
+        // Deletes all messages in the chatroom (admin-only)
+        async function vanishChats() {
+            if (!isAdmin || !currentRoomId) return;
+            try {
+                const messagesRef = collection(db, `artifacts/${appId}/public/data/chatrooms/${currentRoomId}/messages`);
+                const messagesSnapshot = await getDocs(messagesRef);
+                const batch = writeBatch(db);
+                messagesSnapshot.forEach(doc => {
+                    batch.delete(doc.ref);
+                });
+                await batch.commit();
+                showMessage('[[ PROTOCOL: VANISH CHATS ]]\n[[ STATUS: SUCCESS ]]', 'success');
+            } catch (error) {
+                console.error("Error vanishing chats:", error);
+                showMessage('[[ PROTOCOL: VANISH CHATS ]]\n[[ STATUS: FAILURE ]]', 'error');
+            }
+        }
+
+        // Closes the chatroom (admin-only)
+        async function closeRoom() {
+            if (!isAdmin || !currentRoomId) return;
+            try {
+                await setDoc(doc(db, `artifacts/${appId}/public/data/chatrooms`, currentRoomId), { isActive: false }, { merge: true });
+                showMessage('[[ PROTOCOL: CHATROOM TERMINATED ]]', 'success');
+            } catch (error) {
+                console.error("Error closing room:", error);
+                showMessage('[[ PROTOCOL: CHATROOM TERMINATION FAILURE ]]', 'error');
+            }
+        }
+
+        // Changes the chatroom's ID and transfers all data (admin-only)
+        async function changeRoomId() {
+            const newRoomId = document.getElementById('new-room-id-input').value.trim();
+            if (!newRoomId) {
+                showMessage('[[ ERROR: ROOM ID REQUIRED ]]', 'error');
+                return;
+            }
+            if (!currentRoomId || !isAdmin) {
+                showMessage('[[ ERROR: ADMIN PRIVILEGES REQUIRED ]]', 'error');
+                return;
+            }
+
+            try {
+                const roomDoc = await getDoc(doc(db, `artifacts/${appId}/public/data/chatrooms`, newRoomId));
+                if (roomDoc.exists()) {
+                    showMessage('[[ ERROR: ROOM ID UNAVAILABLE ]]', 'error');
+                    return;
+                }
+
+                const batch = writeBatch(db);
+                const oldRoomRef = doc(db, `artifacts/${appId}/public/data/chatrooms`, currentRoomId);
+                const newRoomRef = doc(db, `artifacts/${appId}/public/data/chatrooms`, newRoomId);
+
+                const oldRoomData = (await getDoc(oldRoomRef)).data();
+                batch.set(newRoomRef, { ...oldRoomData, roomId: newRoomId });
+
+                const collectionsToCopy = ['members', 'requests', 'messages'];
+                for (const col of collectionsToCopy) {
+                    const oldDocs = await getDocs(collection(oldRoomRef, col));
+                    oldDocs.forEach(d => {
+                        batch.set(doc(newRoomRef, col, d.id), d.data());
+                    });
+                }
+                
+                batch.delete(oldRoomRef);
+                
+                await batch.commit();
+                
+                currentRoomId = newRoomId;
+                showMessage(`[[ PROTOCOL: ROOM ID UPDATED TO ${newRoomId} ]]`, 'success');
+
+                document.getElementById('room-id-display').innerText = `ROOM ID: ${currentRoomId}`;
+
+            } catch (error) {
+                console.error("Error changing Room ID:", error);
+                showMessage('[[ PROTOCOL: ROOM ID UPDATE FAILED ]]', 'error');
+            }
+        }
+
+        // Renames a member in the chatroom (admin-only)
+        async function renameMember() {
+            const memberId = document.getElementById('rename-member-id').value.trim();
+            const newName = document.getElementById('rename-new-name').value.trim();
+            if (!memberId || !newName) {
+                showMessage('[[ ERROR: MISSING PARAMETERS ]]', 'error');
+                return;
+            }
+            if (!currentRoomId || !isAdmin) {
+                showMessage('[[ ERROR: ADMIN PRIVILEGES REQUIRED ]]', 'error');
+                return;
+            }
+
+            try {
+                const memberRef = doc(db, `artifacts/${appId}/public/data/chatrooms/${currentRoomId}/members`, memberId);
+                const memberDoc = await getDoc(memberRef);
+
+                if (!memberDoc.exists()) {
+                    showMessage('[[ ERROR: MEMBER NOT FOUND ]]', 'error');
+                    return;
+                }
+
+                await updateDoc(memberRef, {
+                    displayName: newName
+                });
+                showMessage(`[[ PROTOCOL: RENAME COMPLETE ]]\n[[ STATUS: SUCCESS ]]`, 'success');
+                document.getElementById('rename-modal').classList.add('hidden');
+                document.getElementById('rename-member-id').value = '';
+                document.getElementById('rename-new-name').value = '';
+            } catch (error) {
+                console.error("Error renaming member:", error);
+                showMessage('[[ PROTOCOL: RENAME FAILED ]]', 'error');
+            }
+        }
+
+        // Exits the chatroom and returns to the home screen
+        async function exitRoom() {
+            if (currentRoomId && userId) {
+                 const memberRef = doc(db, `artifacts/${appId}/public/data/chatrooms/${currentRoomId}/members`, userId);
+                 await updateDoc(memberRef, { isOnline: false });
+            }
+
+            currentRoomId = null;
+            isAdmin = false;
+            document.getElementById('message-box').classList.add('hidden');
+            document.getElementById('messages-list').innerHTML = ''; 
+            document.getElementById('members-list').innerHTML = '';
+            document.getElementById('requests-list').innerHTML = '';
+            showScreen('home-screen');
+        }
+
+        // Displays a temporary message to the user
+        function showMessage(text, type) {
+            const msgBox = document.getElementById('message-box');
+            msgBox.textContent = text;
+            msgBox.className = 'fixed top-5 left-1/2 -translate-x-1/2 p-4 rounded-lg shadow-lg z-50 text-center terminal-shadow';
+            if (type === 'error') {
+                msgBox.classList.add('border-2', 'border-[#ff0000]', 'bg-black', 'text-[#ff0000]');
+            } else if (type === 'success') {
+                msgBox.classList.add('border-2', 'border-[#00ff41]', 'bg-black', 'text-[#00ff41]');
+            } else {
+                msgBox.classList.add('border-2', 'border-[#00aaff]', 'bg-black', 'text-[#00aaff]');
+            }
+            msgBox.classList.remove('hidden');
+            setTimeout(() => {
+                msgBox.classList.add('hidden');
+            }, 5000);
+        }
+    </script>
+</body>
+</html>

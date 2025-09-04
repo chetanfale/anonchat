@@ -1,0 +1,427 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Secure Chatroom</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInWithCustomToken, signInAnonymously } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, getDoc, setDoc, addDoc, collection, query, where, getDocs, deleteDoc, onSnapshot, arrayUnion, arrayRemove, writeBatch } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Set log level to debug for detailed console output
+        setLogLevel('debug');
+
+        // IMPORTANT: Replace the placeholder values below with your own Firebase project configuration
+        // You can find this in your Firebase console under Project settings -> General
+        const firebaseConfig = {
+              apiKey: "AIzaSyCVL-W9_ZIs6TY97EZ4BcIEK0DwFePb4rE",
+  authDomain: "anonchat-53f38.firebaseapp.com",
+  projectId: "anonchat-53f38",
+  storageBucket: "anonchat-53f38.firebasestorage.app",
+  messagingSenderId: "656923009248",
+  appId: "1:656923009248:web:e86dd6b3a0a11e90797085",
+  measurementId: "G-EWYJXXE8R9"
+        };
+        const appId = firebaseConfig.projectId;
+
+        // In a real hosting environment, these might be injected, but for local testing,
+        // we'll assume they don't exist and use anonymous authentication.
+        const initialAuthToken = null;
+
+        let app;
+        let db;
+        let auth;
+        let userId = null;
+        let currentRoomId = null;
+        let isAdmin = false;
+
+        window.onload = async () => {
+            try {
+                if (Object.keys(firebaseConfig).length > 0) {
+                    app = initializeApp(firebaseConfig);
+                    db = getFirestore(app);
+                    auth = getAuth(app);
+                    await handleAuth();
+                    setupListeners();
+                } else {
+                    console.error("Firebase config is missing. Please provide it.");
+                }
+            } catch (error) {
+                console.error("Initialization failed:", error);
+            }
+        };
+
+        async function handleAuth() {
+            try {
+                if (initialAuthToken) {
+                    await signInWithCustomToken(auth, initialAuthToken);
+                } else {
+                    await signInAnonymously(auth);
+                }
+                userId = auth.currentUser.uid;
+                console.log("Authenticated with user ID:", userId);
+            } catch (error) {
+                console.error("Authentication failed:", error);
+            }
+        }
+
+        function setupListeners() {
+            document.getElementById('create-room-btn').addEventListener('click', createRoom);
+            document.getElementById('join-room-btn').addEventListener('click', joinRoom);
+            document.getElementById('send-message-btn').addEventListener('click', sendMessage);
+            document.getElementById('vanish-chats-btn').addEventListener('click', vanishChats);
+            document.getElementById('close-room-btn').addEventListener('click', closeRoom);
+            document.getElementById('exit-room-btn').addEventListener('click', exitRoom);
+        }
+
+        function showScreen(screenId) {
+            document.querySelectorAll('.screen').forEach(screen => {
+                screen.classList.add('hidden');
+            });
+            document.getElementById(screenId).classList.remove('hidden');
+        }
+
+        async function createRoom() {
+            const passcode = document.getElementById('passcode-input').value;
+            if (!passcode) {
+                showMessage('Please enter a passcode.', 'error');
+                return;
+            }
+            try {
+                const newRoomRef = doc(collection(db, `artifacts/${appId}/public/data/chatrooms`));
+                await setDoc(newRoomRef, {
+                    roomId: newRoomRef.id,
+                    adminId: userId,
+                    isActive: true,
+                    passcode: passcode,
+                    createdAt: Date.now()
+                });
+                await setDoc(doc(db, `artifacts/${appId}/public/data/chatrooms/${newRoomRef.id}/members`, userId), {
+                    userId: userId,
+                    isMember: true,
+                    isOnline: true
+                });
+                currentRoomId = newRoomRef.id;
+                isAdmin = true;
+                showMessage(`Room created with ID: ${currentRoomId}`, 'success');
+                enterChatroom(currentRoomId);
+            } catch (error) {
+                console.error("Error creating room:", error);
+                showMessage('Failed to create room.', 'error');
+            }
+        }
+
+        async function joinRoom() {
+            const roomId = document.getElementById('join-room-id-input').value;
+            const passcode = document.getElementById('join-passcode-input').value;
+
+            if (!roomId || !passcode) {
+                showMessage('Please enter both room ID and passcode.', 'error');
+                return;
+            }
+            try {
+                const roomDoc = await getDoc(doc(db, `artifacts/${appId}/public/data/chatrooms`, roomId));
+                if (!roomDoc.exists() || roomDoc.data().passcode !== passcode) {
+                    showMessage('Invalid room ID or passcode.', 'error');
+                    return;
+                }
+                if (!roomDoc.data().isActive) {
+                    showMessage('The chatroom is closed.', 'error');
+                    return;
+                }
+
+                currentRoomId = roomId;
+                const memberDoc = await getDoc(doc(db, `artifacts/${appId}/public/data/chatrooms/${currentRoomId}/members`, userId));
+                if (memberDoc.exists()) {
+                    enterChatroom(currentRoomId);
+                } else {
+                    await setDoc(doc(db, `artifacts/${appId}/public/data/chatrooms/${currentRoomId}/requests`, userId), {
+                        userId: userId,
+                        timestamp: Date.now()
+                    });
+                    showMessage('Your join request has been sent to the admin.', 'info');
+                    document.getElementById('join-request-sent').classList.remove('hidden');
+                }
+            } catch (error) {
+                console.error("Error joining room:", error);
+                showMessage('Failed to join room.', 'error');
+            }
+        }
+
+        async function enterChatroom(roomId) {
+            showScreen('chatroom-screen');
+            document.getElementById('room-id-display').innerText = `Room ID: ${roomId}`;
+            document.getElementById('user-id-display').innerText = `Your ID: ${userId}`;
+            
+            try {
+                const roomDoc = await getDoc(doc(db, `artifacts/${appId}/public/data/chatrooms`, roomId));
+                isAdmin = roomDoc.data().adminId === userId;
+            } catch (error) {
+                console.error("Error determining admin status:", error);
+            }
+
+            if (isAdmin) {
+                document.getElementById('admin-controls').classList.remove('hidden');
+            } else {
+                document.getElementById('admin-controls').classList.add('hidden');
+            }
+
+            // Real-time listeners
+            onSnapshot(doc(db, `artifacts/${appId}/public/data/chatrooms`, roomId), (doc) => {
+                const room = doc.data();
+                if (room && !room.isActive) {
+                    document.getElementById('chat-input-area').classList.add('hidden');
+                    showMessage('The chatroom has been closed by the admin.', 'info');
+                } else {
+                    document.getElementById('chat-input-area').classList.remove('hidden');
+                }
+            });
+
+            onSnapshot(collection(db, `artifacts/${appId}/public/data/chatrooms/${roomId}/messages`), (snapshot) => {
+                const messagesList = document.getElementById('messages-list');
+                messagesList.innerHTML = ''; // Clear all messages before rendering
+                
+                // Render all messages from the snapshot
+                snapshot.forEach(doc => {
+                    const messageData = doc.data();
+                    const messageElement = document.createElement('div');
+                    messageElement.className = `p-3 rounded-lg my-2 max-w-[80%] break-words ${messageData.userId === userId ? 'bg-purple-600 text-white ml-auto' : 'bg-gray-700 text-gray-100 mr-auto'}`;
+                    messageElement.innerText = `${messageData.userId === userId ? 'You' : messageData.userId}: ${messageData.text}`;
+                    messagesList.appendChild(messageElement);
+                });
+                messagesList.scrollTop = messagesList.scrollHeight;
+            });
+
+            onSnapshot(collection(db, `artifacts/${appId}/public/data/chatrooms/${roomId}/members`), (snapshot) => {
+                const membersList = document.getElementById('members-list');
+                membersList.innerHTML = '';
+                snapshot.forEach(doc => {
+                    const memberId = doc.id;
+                    const memberElement = document.createElement('li');
+                    memberElement.className = 'p-2 bg-gray-700 rounded-lg mb-2';
+                    memberElement.innerText = memberId === userId ? `${memberId} (You)` : memberId;
+                    membersList.appendChild(memberElement);
+                });
+            });
+
+            if (isAdmin) {
+                onSnapshot(collection(db, `artifacts/${appId}/public/data/chatrooms/${roomId}/requests`), (snapshot) => {
+                    const requestsList = document.getElementById('requests-list');
+                    requestsList.innerHTML = '';
+                    if (snapshot.docs.length > 0) {
+                        document.getElementById('requests-container').classList.remove('hidden');
+                    } else {
+                        document.getElementById('requests-container').classList.add('hidden');
+                    }
+                    snapshot.forEach(doc => {
+                        const requestData = doc.data();
+                        const requestElement = document.createElement('div');
+                        requestElement.className = 'flex justify-between items-center p-2 bg-gray-700 rounded-lg mb-2';
+                        requestElement.innerHTML = `
+                            <span>${requestData.userId} wants to join.</span>
+                            <div>
+                                <button onclick="handleRequest('${doc.id}', true)" class="bg-green-500 hover:bg-green-600 text-white px-3 py-1 rounded-full mr-2">Accept</button>
+                                <button onclick="handleRequest('${doc.id}', false)" class="bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded-full">Decline</button>
+                            </div>
+                        `;
+                        requestsList.appendChild(requestElement);
+                    });
+                });
+            }
+        }
+
+        window.handleRequest = async (requestId, accept) => {
+            if (!currentRoomId || !isAdmin) return;
+            const requestRef = doc(db, `artifacts/${appId}/public/data/chatrooms/${currentRoomId}/requests`, requestId);
+            try {
+                const requestDoc = await getDoc(requestRef);
+                if (!requestDoc.exists()) return;
+                const requesterId = requestDoc.data().userId;
+
+                if (accept) {
+                    await setDoc(doc(db, `artifacts/${appId}/public/data/chatrooms/${currentRoomId}/members`, requesterId), {
+                        userId: requesterId,
+                        isMember: true,
+                        isOnline: true
+                    });
+                }
+                await deleteDoc(requestRef);
+            } catch (error) {
+                console.error("Error handling request:", error);
+                showMessage('Failed to handle request.', 'error');
+            }
+        };
+
+        async function sendMessage() {
+            const messageInput = document.getElementById('message-input');
+            const messageText = messageInput.value.trim();
+            if (messageText === '') return;
+            try {
+                await addDoc(collection(db, `artifacts/${appId}/public/data/chatrooms/${currentRoomId}/messages`), {
+                    userId: userId,
+                    text: messageText,
+                    timestamp: Date.now()
+                });
+                messageInput.value = '';
+            } catch (error) {
+                console.error("Error sending message:", error);
+                showMessage('Failed to send message.', 'error');
+            }
+        }
+
+        async function vanishChats() {
+            if (!isAdmin || !currentRoomId) return;
+            try {
+                const messagesRef = collection(db, `artifacts/${appId}/public/data/chatrooms/${currentRoomId}/messages`);
+                const messagesSnapshot = await getDocs(messagesRef);
+                const batch = writeBatch(db);
+                messagesSnapshot.forEach(doc => {
+                    batch.delete(doc.ref);
+                });
+                await batch.commit();
+                showMessage('All messages have been vanished.', 'success');
+            } catch (error) {
+                console.error("Error vanishing chats:", error);
+                showMessage('Failed to vanish chats.', 'error');
+            }
+        }
+
+        async function closeRoom() {
+            if (!isAdmin || !currentRoomId) return;
+            try {
+                await setDoc(doc(db, `artifacts/${appId}/public/data/chatrooms`, currentRoomId), { isActive: false }, { merge: true });
+                showMessage('Chatroom has been closed.', 'success');
+            } catch (error) {
+                console.error("Error closing room:", error);
+                showMessage('Failed to close room.', 'error');
+            }
+        }
+
+        function exitRoom() {
+            currentRoomId = null;
+            isAdmin = false;
+            document.getElementById('message-box').classList.add('hidden');
+            // Fix: The ID was "messages-list", not "message-list"
+            document.getElementById('messages-list').innerHTML = ''; 
+            document.getElementById('members-list').innerHTML = '';
+            document.getElementById('requests-list').innerHTML = '';
+            showScreen('home-screen');
+        }
+
+        function showMessage(text, type) {
+            const msgBox = document.getElementById('message-box');
+            msgBox.textContent = text;
+            msgBox.className = 'absolute top-5 left-1/2 -translate-x-1/2 p-4 rounded-lg shadow-lg z-50';
+            if (type === 'error') {
+                msgBox.classList.add('bg-red-500', 'text-white');
+            } else if (type === 'success') {
+                msgBox.classList.add('bg-green-500', 'text-white');
+            } else {
+                msgBox.classList.add('bg-blue-500', 'text-white');
+            }
+            msgBox.classList.remove('hidden');
+            setTimeout(() => {
+                msgBox.classList.add('hidden');
+            }, 3000);
+        }
+    </script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #121212;
+            color: #E0E0E0;
+        }
+        /* Custom scrollbar for chat messages */
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: #2D3748;
+            border-radius: 10px;
+        }
+
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: #4A5568;
+            border-radius: 10px;
+        }
+    </style>
+</head>
+<body class="min-h-screen flex items-center justify-center p-4">
+
+    <!-- Message Box -->
+    <div id="message-box" class="hidden"></div>
+
+    <!-- Home Screen -->
+    <div id="home-screen" class="screen w-full max-w-sm p-8 bg-gray-800 rounded-2xl shadow-lg">
+        <h1 class="text-3xl font-bold mb-6 text-center text-purple-400">Secure Chatroom</h1>
+        
+        <!-- Create Room Section -->
+        <div class="mb-8 p-6 bg-gray-700 rounded-xl shadow-inner">
+            <h2 class="text-xl font-semibold mb-4 text-center">Create New Chatroom</h2>
+            <input id="passcode-input" type="text" placeholder="Enter a passcode" class="w-full p-3 rounded-lg mb-4 bg-gray-900 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500">
+            <button id="create-room-btn" class="w-full bg-purple-500 hover:bg-purple-600 text-white py-3 rounded-lg font-bold transition-colors">Create Room</button>
+        </div>
+
+        <!-- Join Room Section -->
+        <div class="p-6 bg-gray-700 rounded-xl shadow-inner">
+            <h2 class="text-xl font-semibold mb-4 text-center">Join Existing Chatroom</h2>
+            <input id="join-room-id-input" type="text" placeholder="Enter Room ID" class="w-full p-3 rounded-lg mb-2 bg-gray-900 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500">
+            <input id="join-passcode-input" type="text" placeholder="Enter Passcode" class="w-full p-3 rounded-lg mb-4 bg-gray-900 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500">
+            <button id="join-room-btn" class="w-full bg-blue-500 hover:bg-blue-600 text-white py-3 rounded-lg font-bold transition-colors">Join Room</button>
+        </div>
+        
+        <p id="join-request-sent" class="hidden mt-4 text-sm text-center text-yellow-400">Your join request has been sent to the admin.</p>
+    </div>
+
+    <!-- Chatroom Screen -->
+    <div id="chatroom-screen" class="screen hidden w-full max-w-4xl h-[90vh] flex flex-col bg-gray-800 rounded-2xl shadow-lg p-6">
+        <div class="flex justify-between items-center mb-4 pb-4 border-b border-gray-700">
+            <h1 class="text-2xl font-bold text-purple-400">
+                <span id="room-id-display">Room ID: </span>
+            </h1>
+            <p id="user-id-display" class="text-xs text-gray-400"></p>
+            <button id="exit-room-btn" class="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-lg font-bold transition-colors">Exit</button>
+        </div>
+        
+        <div class="flex flex-col md:flex-row flex-1 overflow-hidden">
+            <!-- Main Chat Area -->
+            <div class="flex flex-col flex-1 bg-gray-900 rounded-xl p-4 overflow-hidden md:mr-4 mb-4 md:mb-0">
+                <div id="messages-list" class="flex-1 overflow-y-auto mb-4 custom-scrollbar"></div>
+                <div id="chat-input-area" class="flex">
+                    <input id="message-input" type="text" placeholder="Type your message..." class="flex-1 p-3 rounded-l-lg bg-gray-700 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500">
+                    <button id="send-message-btn" class="bg-purple-500 hover:bg-purple-600 text-white p-3 rounded-r-lg font-bold transition-colors">Send</button>
+                </div>
+            </div>
+            
+            <!-- Side Panel -->
+            <div class="w-full md:w-1/3 flex flex-col">
+                <!-- Members List -->
+                <div class="flex-1 bg-gray-900 rounded-xl p-4 mb-4">
+                    <h2 class="text-lg font-semibold mb-2">Members</h2>
+                    <ul id="members-list" class="space-y-2 overflow-y-auto max-h-40 md:max-h-full"></ul>
+                </div>
+
+                <!-- Admin Controls -->
+                <div id="admin-controls" class="hidden bg-gray-900 rounded-xl p-4 mb-4">
+                    <h2 class="text-lg font-semibold mb-2 text-purple-400">Admin Controls</h2>
+                    <div class="flex flex-col space-y-2">
+                        <button id="vanish-chats-btn" class="bg-yellow-500 hover:bg-yellow-600 text-white py-2 rounded-lg font-bold transition-colors">Vanish All Chats</button>
+                        <button id="close-room-btn" class="bg-red-500 hover:bg-red-600 text-white py-2 rounded-lg font-bold transition-colors">Close Chatroom</button>
+                    </div>
+                </div>
+                
+                <!-- Join Requests -->
+                <div id="requests-container" class="hidden bg-gray-900 rounded-xl p-4">
+                    <h2 class="text-lg font-semibold mb-2 text-purple-400">Join Requests</h2>
+                    <div id="requests-list" class="space-y-2"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

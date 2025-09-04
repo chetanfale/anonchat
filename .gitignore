@@ -67,3 +67,11 @@ node_modules/
 
 # dataconnect generated files
 .dataconnect
+
+
+# Ignore everything
+*
+
+# But not these files...
+!.gitignore
+!README.md

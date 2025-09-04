@@ -747,8 +747,23 @@
         async function closeRoom() {
             if (!isAdmin || !currentRoomId) return;
             try {
-                await setDoc(doc(db, `artifacts/${appId}/public/data/chatrooms`, currentRoomId), { isActive: false }, { merge: true });
-                showMessage('[[ PROTOCOL: CHATROOM TERMINATED ]]', 'success');
+                 const roomRef = doc(db, `artifacts/${appId}/public/data/chatrooms`, currentRoomId);
+                 const batch = writeBatch(db);
+
+                 // Delete all subcollections first
+                 const collectionsToDelete = ['members', 'requests', 'messages'];
+                 for (const col of collectionsToDelete) {
+                     const docsToDelete = await getDocs(collection(roomRef, col));
+                     docsToDelete.forEach(d => {
+                         batch.delete(doc(roomRef, col, d.id));
+                     });
+                 }
+                 await batch.commit();
+
+                 // Finally, delete the main room document
+                 await deleteDoc(roomRef);
+
+                 showMessage('[[ PROTOCOL: CHATROOM TERMINATED ]]', 'success');
             } catch (error) {
                 console.error("Error closing room:", error);
                 showMessage('[[ PROTOCOL: CHATROOM TERMINATION FAILURE ]]', 'error');
